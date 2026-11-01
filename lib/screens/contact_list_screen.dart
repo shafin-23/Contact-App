@@ -20,6 +20,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
 
   int totalContacts = 0;
   int favoriteCount = 0;
+  int _loadRequestId = 0;
 
   bool isLoading = true;
   bool favoritesOnly = false;
@@ -33,53 +34,48 @@ class _ContactListScreenState extends State<ContactListScreen> {
     loadContacts();
   }
 
-  // Load Contacts and Statistics
+  // Load contacts and statistics
   Future<void> loadContacts({bool showLoader = true}) async {
+    final requestId = ++_loadRequestId;
+
     if (showLoader && mounted) {
-      setState(() {
-        isLoading = true;
-      });
+      setState(() => isLoading = true);
     }
 
     try {
-      final results = await Future.wait<List<Contact>>([
-        DatabaseHelper.instance.getContacts(
-          searchQuery: searchController.text.trim(),
-          favoritesOnly: favoritesOnly,
-        ),
-        DatabaseHelper.instance.getContacts(),
-      ]);
+      final filteredContacts =
+      await DatabaseHelper.instance.getContacts(
+        searchQuery: searchController.text.trim(),
+        favoritesOnly: favoritesOnly,
+      );
 
-      final filteredContacts = results[0];
-      final allContacts = results[1];
+      final allContacts =
+      await DatabaseHelper.instance.getContacts();
 
-      if (!mounted) return;
+      if (!mounted || requestId != _loadRequestId) return;
 
       setState(() {
         contacts = filteredContacts;
         totalContacts = allContacts.length;
-        favoriteCount = allContacts
-            .where((contact) => contact.isFavorite)
-            .length;
+        favoriteCount =
+            allContacts.where((c) => c.isFavorite).length;
         isLoading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || requestId != _loadRequestId) return;
 
-      setState(() {
-        isLoading = false;
-      });
+      setState(() => isLoading = false);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Unable to load contacts: $e'),
-        ),
+        SnackBar(content: Text('Unable to load contacts: $e')),
       );
     }
   }
 
-  // Open Add/Edit Contact Screen
+  // Open Add/Edit screen
   Future<void> openContactForm([Contact? contact]) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -88,11 +84,11 @@ class _ContactListScreenState extends State<ContactListScreen> {
     );
 
     if (result == true && mounted) {
-      await loadContacts();
+      loadContacts();
     }
   }
 
-  // Delete Contact
+  // Delete contact
   Future<void> deleteContact(Contact contact) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -127,58 +123,52 @@ class _ContactListScreenState extends State<ContactListScreen> {
       ),
     );
 
-    if (confirm != true) return;
+    if (confirm == true) {
+      try {
+        await DatabaseHelper.instance.deleteContact(contact.id!);
 
-    try {
-      await DatabaseHelper.instance.deleteContact(contact.id!);
+        if (!mounted) return;
 
-      if (!mounted) return;
+        await loadContacts();
 
-      await loadContacts();
+        if (!mounted) return;
 
-      if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Contact deleted successfully'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Contact deleted successfully'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Delete failed: $e'),
-        ),
-      );
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Delete failed: $e')),
+        );
+      }
     }
   }
 
-  // Toggle Favorite
+  // Toggle favorite
   Future<void> toggleFavorite(Contact contact) async {
     try {
       final updatedContact = contact.copyWith(
         isFavorite: !contact.isFavorite,
       );
 
-      await DatabaseHelper.instance.updateContact(
-        updatedContact,
-      );
+      await DatabaseHelper.instance.updateContact(updatedContact);
 
       await loadContacts(showLoader: false);
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Update failed: $e'),
-        ),
+        SnackBar(content: Text('Update failed: $e')),
       );
     }
   }
 
-  // Generate Avatar Color
+  // Generate avatar color
   Color avatarColor(String name) {
     final colors = [
       const Color(0xFFEAE5FF),
@@ -201,160 +191,79 @@ class _ContactListScreenState extends State<ContactListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
-
+      backgroundColor: AppColors.background,
       body: SafeArea(
+        bottom: false,
         child: RefreshIndicator(
           color: AppColors.primary,
           onRefresh: loadContacts,
-          child: SingleChildScrollView(
+          child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: 115),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                _buildHeader(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: _buildHeader(),
+              ),
 
-                // Statistics Cards
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: _buildStatCard(
-                          'Total Contacts',
-                          totalContacts.toString(),
-                          Icons.people_outline_rounded,
-                          const Color(0xFF6956D9),
-                          const Color(0xFFEDE9FF),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildStatCard(
-                          'Favorites',
-                          favoriteCount.toString(),
-                          Icons.favorite_rounded,
-                          const Color(0xFFE85D75),
-                          const Color(0xFFFFE8EC),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              SliverToBoxAdapter(
+                child: _buildStatistics(),
+              ),
 
-                // Filter Tabs
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                  ),
-                  child: Row(
-                    children: [
-                      _buildFilter(
-                        'All Contacts',
-                        !favoritesOnly,
-                            () {
-                          setState(() {
-                            favoritesOnly = false;
-                          });
-                          loadContacts();
-                        },
-                      ),
-                      const SizedBox(width: 10),
-                      _buildFilter(
-                        'Favorites',
-                        favoritesOnly,
-                            () {
-                          setState(() {
-                            favoritesOnly = true;
-                          });
-                          loadContacts();
-                        },
-                      ),
-                    ],
-                  ),
-                ),
+              SliverToBoxAdapter(
+                child: _buildFilters(),
+              ),
 
-                // List Heading
-                Padding(
+              SliverToBoxAdapter(
+                child: _buildListHeading(),
+              ),
+
+              if (isLoading)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.primary,
+                    ),
+                  ),
+                )
+              else if (contacts.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _buildEmptyState(),
+                )
+              else
+                SliverPadding(
                   padding: const EdgeInsets.fromLTRB(
-                    22,
-                    22,
-                    22,
-                    12,
+                    20,
+                    2,
+                    20,
+                    24,
                   ),
-                  child: Row(
-                    mainAxisAlignment:
-                    MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        favoritesOnly
-                            ? 'Favorite Contacts'
-                            : 'All Contacts',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 17,
-                          color: AppColors.textDark,
-                        ),
-                      ),
-                      Text(
-                        '${contacts.length} found',
-                        style: const TextStyle(
-                          color: AppColors.textGrey,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                        return _buildContactCard(contacts[index]);
+                      },
+                      childCount: contacts.length,
+                    ),
                   ),
                 ),
-
-                // Loading / Empty / Contact List
-                if (isLoading)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 70),
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  )
-                else if (contacts.isEmpty)
-                  _buildEmptyState()
-                else
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                    ),
-                    child: Column(
-                      children: contacts
-                          .map(
-                            (contact) =>
-                            _buildContactCard(contact),
-                      )
-                          .toList(),
-                    ),
-                  ),
-              ],
-            ),
+            ],
           ),
         ),
       ),
 
-      // Fixed Bottom Glass Dock
-      floatingActionButtonLocation:
-      FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: _buildGlassDock(),
+      // Fixed bottom search and add dock
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: _buildGlassDock(),
+      ),
     );
   }
 
   // Header
   Widget _buildHeader() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 18, 22, 12),
+      padding: const EdgeInsets.fromLTRB(22, 20, 22, 12),
       child: Row(
         children: [
           Expanded(
@@ -381,7 +290,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Your connections, all in one place.',
+                  'Manage connections effortlessly.',
                   style: TextStyle(
                     color: AppColors.textGrey,
                     fontSize: 13,
@@ -391,16 +300,16 @@ class _ContactListScreenState extends State<ContactListScreen> {
             ),
           ),
           Container(
-            height: 48,
-            width: 48,
+            height: 52,
+            width: 52,
             decoration: BoxDecoration(
               color: AppColors.primary.withAlpha(20),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(18),
             ),
             child: const Icon(
               Icons.people_alt_rounded,
               color: AppColors.primary,
-              size: 25,
+              size: 27,
             ),
           ),
         ],
@@ -408,7 +317,36 @@ class _ContactListScreenState extends State<ContactListScreen> {
     );
   }
 
-  // Statistics Card
+  // Statistics cards
+  Widget _buildStatistics() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildStatCard(
+              'Total Contacts',
+              totalContacts.toString(),
+              Icons.people_outline_rounded,
+              const Color(0xFF6956D9),
+              const Color(0xFFEDE9FF),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _buildStatCard(
+              'Favorites',
+              favoriteCount.toString(),
+              Icons.favorite_rounded,
+              const Color(0xFFE85D75),
+              const Color(0xFFFFE8EC),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildStatCard(
       String title,
       String value,
@@ -417,13 +355,14 @@ class _ContactListScreenState extends State<ContactListScreen> {
       Color backgroundColor,
       ) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 15,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         children: [
@@ -432,34 +371,40 @@ class _ContactListScreenState extends State<ContactListScreen> {
             width: 42,
             decoration: BoxDecoration(
               color: backgroundColor,
-              borderRadius: BorderRadius.circular(13),
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(
-              icon,
-              color: iconColor,
-              size: 21,
-            ),
+            child: Icon(icon, color: iconColor, size: 22),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 9),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   value,
                   style: const TextStyle(
-                    fontSize: 21,
+                    fontSize: 23,
                     fontWeight: FontWeight.bold,
                     color: AppColors.textDark,
                   ),
                 ),
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: AppColors.textGrey,
+                const SizedBox(height: 2),
+                SizedBox(
+                  width: double.infinity,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -470,7 +415,34 @@ class _ContactListScreenState extends State<ContactListScreen> {
     );
   }
 
-  // Filter Button
+  // Filter tabs
+  Widget _buildFilters() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Row(
+        children: [
+          _buildFilter(
+            'All Contacts',
+            !favoritesOnly,
+                () {
+              setState(() => favoritesOnly = false);
+              loadContacts();
+            },
+          ),
+          const SizedBox(width: 10),
+          _buildFilter(
+            'Favorites',
+            favoritesOnly,
+                () {
+              setState(() => favoritesOnly = true);
+              loadContacts();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildFilter(
       String title,
       bool selected,
@@ -481,14 +453,12 @@ class _ContactListScreenState extends State<ContactListScreen> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(
-          horizontal: 18,
+          horizontal: 17,
           vertical: 11,
         ),
         decoration: BoxDecoration(
-          color: selected
-              ? AppColors.primary
-              : Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          color: selected ? AppColors.primary : Colors.white,
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: selected
                 ? AppColors.primary
@@ -496,16 +466,17 @@ class _ContactListScreenState extends State<ContactListScreen> {
           ),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             if (title == 'Favorites') ...[
               Icon(
                 Icons.favorite_rounded,
-                size: 15,
+                size: 16,
                 color: selected
                     ? Colors.white
                     : AppColors.favorite,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 7),
             ],
             Text(
               title,
@@ -514,7 +485,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
                     ? Colors.white
                     : AppColors.textGrey,
                 fontWeight: FontWeight.w600,
-                fontSize: 12,
+                fontSize: 13,
               ),
             ),
           ],
@@ -523,29 +494,56 @@ class _ContactListScreenState extends State<ContactListScreen> {
     );
   }
 
-  // Contact Card
+  // Contact list heading
+  Widget _buildListHeading() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(22, 22, 22, 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            favoritesOnly ? 'Favorite Contacts' : 'All Contacts',
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 19,
+              color: AppColors.textDark,
+            ),
+          ),
+          Text(
+            '${contacts.length} found',
+            style: const TextStyle(
+              color: AppColors.textGrey,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Contact card
   Widget _buildContactCard(Contact contact) {
     final hasEmail = contact.email.trim().isNotEmpty;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 12,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.border,
-        ),
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(color: AppColors.border),
       ),
       child: Row(
         children: [
-          // Avatar
           Container(
-            height: 52,
-            width: 52,
+            height: 54,
+            width: 54,
             decoration: BoxDecoration(
               color: avatarColor(contact.name),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(17),
             ),
             child: Center(
               child: Text(
@@ -553,26 +551,24 @@ class _ContactListScreenState extends State<ContactListScreen> {
                     ? contact.name[0].toUpperCase()
                     : '?',
                 style: const TextStyle(
-                  fontSize: 21,
+                  fontSize: 23,
                   fontWeight: FontWeight.bold,
                   color: AppColors.primary,
                 ),
               ),
             ),
           ),
+          const SizedBox(width: 12),
 
-          const SizedBox(width: 13),
-
-          // Contact Details
           Expanded(
             child: InkWell(
+              borderRadius: BorderRadius.circular(8),
               onTap: () => openContactForm(contact),
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 4,
-                ),
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       contact.name,
@@ -580,52 +576,49 @@ class _ContactListScreenState extends State<ContactListScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
-                        fontSize: 15,
+                        fontSize: 16,
                         color: AppColors.textDark,
                       ),
                     ),
-
-                    const SizedBox(height: 6),
-
+                    const SizedBox(height: 5),
                     Row(
                       children: [
                         const Icon(
                           Icons.phone_outlined,
-                          size: 13,
+                          size: 15,
                           color: AppColors.textGrey,
                         ),
-                        const SizedBox(width: 5),
+                        const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             contact.phone,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              fontSize: 12,
+                              fontSize: 13,
                               color: AppColors.textGrey,
                             ),
                           ),
                         ),
                       ],
                     ),
-
                     if (hasEmail) ...[
                       const SizedBox(height: 4),
                       Row(
                         children: [
                           const Icon(
                             Icons.email_outlined,
-                            size: 13,
+                            size: 14,
                             color: AppColors.textGrey,
                           ),
-                          const SizedBox(width: 5),
+                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               contact.email,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 11,
+                                fontSize: 12,
                                 color: AppColors.textGrey,
                               ),
                             ),
@@ -639,11 +632,17 @@ class _ContactListScreenState extends State<ContactListScreen> {
             ),
           ),
 
-          // Favorite and More Options
+          const SizedBox(width: 4),
+
           Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
                 visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(
+                  minWidth: 38,
+                  minHeight: 38,
+                ),
                 onPressed: () => toggleFavorite(contact),
                 icon: Icon(
                   contact.isFavorite
@@ -652,11 +651,16 @@ class _ContactListScreenState extends State<ContactListScreen> {
                   color: contact.isFavorite
                       ? AppColors.favorite
                       : AppColors.textGrey,
+                  size: 23,
                 ),
               ),
-
               PopupMenuButton<String>(
                 padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 38,
+                  minHeight: 38,
+                ),
+                iconSize: 22,
                 icon: const Icon(
                   Icons.more_vert_rounded,
                   color: AppColors.textGrey,
@@ -673,10 +677,7 @@ class _ContactListScreenState extends State<ContactListScreen> {
                     value: 'edit',
                     child: Row(
                       children: [
-                        Icon(
-                          Icons.edit_outlined,
-                          size: 19,
-                        ),
+                        Icon(Icons.edit_outlined, size: 19),
                         SizedBox(width: 10),
                         Text('Edit'),
                       ],
@@ -705,160 +706,79 @@ class _ContactListScreenState extends State<ContactListScreen> {
     );
   }
 
-  // Empty State
-  Widget _buildEmptyState() {
-    final isSearching =
-        searchController.text.trim().isNotEmpty;
-
-    return Padding(
-      padding: const EdgeInsets.all(30),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            height: 100,
-            width: 100,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withAlpha(18),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isSearching
-                  ? Icons.search_off_rounded
-                  : favoritesOnly
-                  ? Icons.favorite_border_rounded
-                  : Icons.people_outline_rounded,
-              size: 45,
-              color: AppColors.primary,
-            ),
-          ),
-
-          const SizedBox(height: 20),
-
-          Text(
-            isSearching
-                ? 'No contacts found'
-                : favoritesOnly
-                ? 'No favorite contacts'
-                : 'No contacts yet',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textDark,
-            ),
-          ),
-
-          const SizedBox(height: 8),
-
-          Text(
-            isSearching
-                ? 'Try searching with another name.'
-                : favoritesOnly
-                ? 'Mark a contact as favorite to see it here.'
-                : 'Start building your contact list today.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.textGrey,
-            ),
-          ),
-
-          if (!isSearching && !favoritesOnly) ...[
-            const SizedBox(height: 20),
-            OutlinedButton.icon(
-              onPressed: () => openContactForm(),
-              icon: const Icon(Icons.add),
-              label: const Text('Add your first contact'),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // Fixed Glass Dock: Search + Add Button
+  // Bottom search and add dock
   Widget _buildGlassDock() {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-      ),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(28),
         child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: 15,
-            sigmaY: 15,
-          ),
+          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
           child: Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.white.withAlpha(225),
-              borderRadius: BorderRadius.circular(24),
+              color: Colors.white.withAlpha(235),
+              borderRadius: BorderRadius.circular(28),
               border: Border.all(
-                color: Colors.white.withAlpha(220),
-                width: 1.2,
+                color: AppColors.border,
+                width: 1,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(15),
-                  blurRadius: 18,
-                  offset: const Offset(0, 5),
-                ),
-              ],
             ),
             child: Row(
               children: [
-                // Search Field
                 Expanded(
                   child: Container(
-                    height: 48,
+                    height: 54,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE3F2FD),
-                      borderRadius: BorderRadius.circular(16),
+                      color: const Color(0xFFF8F7FF),
+                      borderRadius: BorderRadius.circular(19),
                       border: Border.all(
-                        color: const Color(0xFFBBDEFB),
+                        color: AppColors.border,
                       ),
                     ),
                     child: TextField(
                       controller: searchController,
-                      autofocus: false,
-                      textInputAction: TextInputAction.search,
-                      onChanged: (value) {
+
+                      // Unfocus search when tapping outside
+                      onTapOutside: (_) {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                      },
+
+                      onChanged: (_) {
                         setState(() {});
                         loadContacts(showLoader: false);
                       },
+                      textInputAction: TextInputAction.search,
                       decoration: InputDecoration(
                         hintText: 'Search contacts...',
                         hintStyle: const TextStyle(
                           color: AppColors.textGrey,
-                          fontSize: 13,
+                          fontSize: 14,
                         ),
                         prefixIcon: const Icon(
                           Icons.search_rounded,
                           color: AppColors.primary,
-                          size: 21,
+                          size: 23,
                         ),
-                        suffixIcon:
-                        searchController.text.isNotEmpty
+                        suffixIcon: searchController.text.isNotEmpty
                             ? IconButton(
                           onPressed: () {
                             searchController.clear();
                             setState(() {});
-                            loadContacts(
-                              showLoader: false,
-                            );
+                            loadContacts(showLoader: false);
+                            FocusManager.instance.primaryFocus?.unfocus();
                           },
                           icon: const Icon(
                             Icons.close_rounded,
-                            size: 18,
+                            size: 19,
+                            color: AppColors.textGrey,
                           ),
                         )
                             : null,
-                        contentPadding:
-                        const EdgeInsets.symmetric(
-                          vertical: 12,
-                        ),
                         border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 16,
+                        ),
                       ),
                     ),
                   ),
@@ -866,43 +786,104 @@ class _ContactListScreenState extends State<ContactListScreen> {
 
                 const SizedBox(width: 10),
 
-                // Compact Add Button
                 SizedBox(
-                  height: 48,
-                  child: ElevatedButton(
+                  height: 54,
+                  child: FilledButton.icon(
                     onPressed: () => openContactForm(),
-                    style: ElevatedButton.styleFrom(
+                    style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primary,
                       foregroundColor: Colors.white,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
+                        horizontal: 17,
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(19),
                       ),
                     ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.add_rounded,
-                          size: 20,
-                        ),
-                        SizedBox(width: 4),
-                        Text(
-                          'Add',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+                    icon: const Icon(
+                      Icons.add_rounded,
+                      size: 22,
+                    ),
+                    label: const Text(
+                      'Add',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  // Empty state
+  Widget _buildEmptyState() {
+    final isSearching = searchController.text.isNotEmpty;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(30),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              height: 95,
+              width: 95,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withAlpha(18),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                isSearching
+                    ? Icons.search_off_rounded
+                    : favoritesOnly
+                    ? Icons.favorite_border_rounded
+                    : Icons.people_outline_rounded,
+                size: 43,
+                color: AppColors.primary,
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              isSearching
+                  ? 'No contacts found'
+                  : favoritesOnly
+                  ? 'No favorite contacts'
+                  : 'No contacts yet',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isSearching
+                  ? 'Try searching with another name.'
+                  : favoritesOnly
+                  ? 'Mark a contact as favorite to see it here.'
+                  : 'Start building your contact list today.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppColors.textGrey,
+              ),
+            ),
+            if (!isSearching && !favoritesOnly) ...[
+              const SizedBox(height: 18),
+              OutlinedButton.icon(
+                onPressed: () => openContactForm(),
+                icon: const Icon(Icons.add),
+                label: const Text('Add your first contact'),
+              ),
+            ],
+          ],
         ),
       ),
     );
