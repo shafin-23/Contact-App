@@ -1,33 +1,29 @@
+
 import 'package:flutter/material.dart';
 
+import '../app_colors.dart';
 import '../models/contact.dart';
 import '../database/database_helper.dart';
 
 class ContactFormScreen extends StatefulWidget {
   final Contact? contact;
 
-  const ContactFormScreen({
-    super.key,
-    this.contact,
-  });
+  const ContactFormScreen({super.key, this.contact});
 
   @override
-  State<ContactFormScreen> createState() =>
-      _ContactFormScreenState();
+  State<ContactFormScreen> createState() => _ContactFormScreenState();
 }
 
-class _ContactFormScreenState
-    extends State<ContactFormScreen> {
-
+class _ContactFormScreenState extends State<ContactFormScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  late TextEditingController nameController;
-  late TextEditingController phoneController;
-  late TextEditingController emailController;
-  late TextEditingController addressController;
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _addressController = TextEditingController();
 
-  bool isFavorite = false;
-  bool isSaving = false;
+  bool _isFavorite = false;
+  bool _isSaving = false;
 
   bool get isEditing => widget.contact != null;
 
@@ -35,55 +31,47 @@ class _ContactFormScreenState
   void initState() {
     super.initState();
 
-    final contact = widget.contact;
+    if (isEditing) {
+      final contact = widget.contact!;
 
-    nameController = TextEditingController(
-      text: contact?.name ?? '',
-    );
-
-    phoneController = TextEditingController(
-      text: contact?.phone ?? '',
-    );
-
-    emailController = TextEditingController(
-      text: contact?.email ?? '',
-    );
-
-    addressController = TextEditingController(
-      text: contact?.address ?? '',
-    );
-
-    isFavorite = contact?.isFavorite ?? false;
+      _nameController.text = contact.name;
+      _phoneController.text = contact.phone;
+      _emailController.text = contact.email;
+      _addressController.text = contact.address;
+      _isFavorite = contact.isFavorite;
+    }
   }
 
-  // Save Contact
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _addressController.dispose();
+    super.dispose();
+  }
+
   Future<void> saveContact() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() {
-      isSaving = true;
+      _isSaving = true;
     });
 
-    try {
-      final contact = Contact(
-        id: widget.contact?.id,
-        name: nameController.text.trim(),
-        phone: phoneController.text.trim(),
-        email: emailController.text.trim(),
-        address: addressController.text.trim(),
-        isFavorite: isFavorite,
-      );
+    final contact = Contact(
+      id: widget.contact?.id,
+      name: _nameController.text.trim(),
+      phone: _phoneController.text.trim(),
+      email: _emailController.text.trim(),
+      address: _addressController.text.trim(),
+      isFavorite: _isFavorite,
+    );
 
+    try {
       if (isEditing) {
-        await DatabaseHelper.instance.updateContact(
-          contact,
-        );
+        await DatabaseHelper.instance.updateContact(contact);
       } else {
-        await DatabaseHelper.instance.insertContact(
-          contact,
-        );
+        await DatabaseHelper.instance.insertContact(contact);
       }
 
       if (!mounted) return;
@@ -95,29 +83,32 @@ class _ContactFormScreenState
                 ? 'Contact updated successfully!'
                 : 'Contact added successfully!',
           ),
+          backgroundColor: Colors.green,
         ),
       );
 
       Navigator.pop(context, true);
-
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error saving contact: $e'),
+          content: Text('Something went wrong: $e'),
+          backgroundColor: Colors.red,
         ),
       );
-
-      setState(() {
-        isSaving = false;
-      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
     }
   }
 
-  // Reusable Input Field
   Widget buildInputField({
     required String label,
+    required String hint,
     required IconData icon,
     required TextEditingController controller,
     TextInputType keyboardType = TextInputType.text,
@@ -130,150 +121,117 @@ class _ContactFormScreenState
         controller: controller,
         keyboardType: keyboardType,
         maxLines: maxLines,
-
+        validator: validator,
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: Icon(icon),
+          hintText: hint,
+          prefixIcon: Icon(icon, color: AppColors.primary),
           filled: true,
-          fillColor: Colors.white,
+          fillColor: Colors.grey.shade50,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: Colors.grey.shade300),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(14),
             borderSide: const BorderSide(
-              color: Color(0xFFE0E0E0),
+              color: AppColors.primary,
+              width: 1.5,
             ),
           ),
         ),
+      ),
+    );
+  }
 
-        validator: validator ??
-                (value) {
-              if (value == null || value.trim().isEmpty) {
-                return 'Please enter $label';
-              }
-              return null;
-            },
+  Widget buildSectionTitle(String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16, top: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: AppColors.primary),
+          const SizedBox(width: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
       ),
     );
   }
 
   @override
-  void dispose() {
-    nameController.dispose();
-    phoneController.dispose();
-    emailController.dispose();
-    addressController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: Text(
-          isEditing ? 'Edit Contact' : 'Add New Contact',
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
+        title: Text(isEditing ? 'Edit Contact' : 'Add Contact'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
       ),
-
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-
-        child: Form(
-          key: _formKey,
-
+      body: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-
-              // Header
-              Center(
-                child: Column(
-                  children: [
-                    CircleAvatar(
-                      radius: 42,
-                      backgroundColor:
-                      Theme.of(context)
-                          .colorScheme
-                          .primaryContainer,
-                      child: Icon(
-                        isEditing
-                            ? Icons.edit
-                            : Icons.person_add_alt_1,
-                        size: 38,
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    Text(
-                      isEditing
-                          ? 'Update Contact Details'
-                          : 'Create New Contact',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-
-                    const SizedBox(height: 6),
-
-                    const Text(
-                      'Enter the contact information below',
-                      style: TextStyle(
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
+              buildSectionTitle(
+                'Personal Information',
+                Icons.person_outline,
               ),
 
-              const SizedBox(height: 30),
-
-              // Name
               buildInputField(
-                label: 'Full Name',
-                icon: Icons.person_outline,
-                controller: nameController,
-              ),
-
-              // Phone
-              buildInputField(
-                label: 'Phone Number',
-                icon: Icons.phone_outlined,
-                controller: phoneController,
-                keyboardType: TextInputType.phone,
+                label: 'Full Name *',
+                hint: 'Enter full name',
+                icon: Icons.person,
+                controller: _nameController,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
-                    return 'Please enter phone number';
+                    return 'Name is required';
                   }
-
-                  if (!RegExp(r'^[0-9+\-\s()]{7,20}$')
-                      .hasMatch(value.trim())) {
-                    return 'Enter a valid phone number';
-                  }
-
                   return null;
                 },
               ),
 
-              // Email
               buildInputField(
-                label: 'Email Address',
+                label: 'Phone Number *',
+                hint: 'Enter phone number',
+                icon: Icons.phone,
+                controller: _phoneController,
+                keyboardType: TextInputType.phone,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Phone number is required';
+                  }
+                  return null;
+                },
+              ),
+
+              buildInputField(
+                label: 'Email Address (Optional)',
+                hint: 'Enter email address',
                 icon: Icons.email_outlined,
-                controller: emailController,
+                controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
-                    return 'Please enter email address';
+                    return null;
                   }
+
+                  final email = value.trim();
 
                   if (!RegExp(
                     r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-                  ).hasMatch(value.trim())) {
+                  ).hasMatch(email)) {
                     return 'Enter a valid email address';
                   }
 
@@ -281,109 +239,110 @@ class _ContactFormScreenState
                 },
               ),
 
-              // Address
-              buildInputField(
-                label: 'Address',
-                icon: Icons.location_on_outlined,
-                controller: addressController,
-                maxLines: 3,
+              buildSectionTitle(
+                'Address Information',
+                Icons.location_on_outlined,
               ),
 
-              // Favorite Option
+              buildInputField(
+                label: 'Address (Optional)',
+                hint: 'Enter address',
+                icon: Icons.location_on,
+                controller: _addressController,
+                maxLines: 3,
+                validator: (value) => null,
+              ),
+
+              const SizedBox(height: 4),
+
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 15,
-                  vertical: 5,
+                  horizontal: 16,
+                  vertical: 8,
                 ),
-
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: const Color(0xFFE0E0E0),
-                  ),
+                  border: Border.all(color: Colors.grey.shade200),
                 ),
-
                 child: SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text(
-                    'Favorite Contact',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                    ),
+                    'Add to Favorites',
+                    style: TextStyle(fontWeight: FontWeight.w600),
                   ),
-
                   subtitle: const Text(
-                    'Add this contact to favorites',
+                    'Keep this contact in your favorites list',
                   ),
-
                   secondary: const Icon(
                     Icons.favorite,
-                    color: Colors.red,
+                    color: Colors.redAccent,
                   ),
-
-                  value: isFavorite,
-
+                  value: _isFavorite,
+                  activeTrackColor: AppColors.primary,
                   onChanged: (value) {
                     setState(() {
-                      isFavorite = value;
+                      _isFavorite = value;
                     });
                   },
                 ),
               ),
 
-              const SizedBox(height: 30),
+              const SizedBox(height: 28),
 
-              // Save Button
-              SizedBox(
-                width: double.infinity,
-                height: 55,
-
-                child: ElevatedButton.icon(
-                  onPressed: isSaving ? null : saveContact,
-
-                  icon: Icon(
-                    isEditing ? Icons.save : Icons.person_add,
-                  ),
-
-                  label: Text(
-                    isSaving
-                        ? 'Saving...'
-                        : isEditing
-                        ? 'Update Contact'
-                        : 'Save Contact',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _isSaving
+                          ? null
+                          : () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Cancel'),
                     ),
                   ),
 
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                    Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                  const SizedBox(width: 14),
+
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _isSaving ? null : saveContact,
+                      icon: _isSaving
+                          ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                          : const Icon(Icons.save_outlined),
+                      label: Text(
+                        _isSaving
+                            ? 'Saving...'
+                            : isEditing
+                            ? 'Update Contact'
+                            : 'Save Contact',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
 
-              const SizedBox(height: 15),
-
-              // Cancel Button
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-
-                child: OutlinedButton(
-                  onPressed: isSaving
-                      ? null
-                      : () => Navigator.pop(context),
-
-                  child: const Text('Cancel'),
-                ),
-              ),
+              const SizedBox(height: 20),
             ],
           ),
         ),
